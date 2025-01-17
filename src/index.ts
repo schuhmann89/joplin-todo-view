@@ -1,8 +1,24 @@
 import joplin from 'api';
-import { ToolbarButtonLocation } from 'api/types';
+import { SettingItemType, ToolbarButtonLocation } from 'api/types';
 
 joplin.plugins.register({
 	onStart: async function() {
+
+        //Create Settings
+        await joplin.settings.registerSection('settings.supremekirb.todo-view', {
+            label: "ToDo-View"
+        });
+
+        await joplin.settings.registerSettings({
+            'foldersToIgnore': {
+                type: SettingItemType.String,
+                section: 'settings.supremekirb.todo-view',
+                value: '',
+                public: true,
+                label: 'Which folders should be ignored'
+            }
+        });
+
 		// Create the panel object
         const panel = await joplin.views.panels.create('todo_panel');
 		await joplin.views.panels.addScript(panel, './webview.css');
@@ -19,19 +35,7 @@ joplin.plugins.register({
 		});
 
 		async function updateTodoView() {
-        let notes = []
-        let page_idx = 1
-        let result = (await joplin.data.get(["notes"], {fields: [
-                "id", "is_todo", "todo_due", "todo_completed", "title", "created_time"
-            ], page: page_idx}))
-        notes = notes.concat(result.items)
-        while (result.has_more) {
-            page_idx++
-            result = (await joplin.data.get(["notes"], {fields: [
-                    "id", "is_todo", "todo_due", "todo_completed", "title", "created_time"
-                ], page: page_idx}))
-            notes = notes.concat(result.items)
-        }
+        let notes = await getTodoNotesExcludingFolders(['Test']);
 
             const itemHtml = [];
             itemHtml.push("<h1>To-do</h1>")
@@ -166,6 +170,41 @@ joplin.plugins.register({
         updateTodoView();
 	},
 });
+
+async function getTodoNotesExcludingFolders(ignoredFolderNames: string[]) {
+
+    let page_idx = 1
+    let notes = []
+
+        const folders = await joplin.data.get(['folders'], {
+            fields: ['id', 'title']
+        });
+
+        const ignoredFolderIds = folders.items
+            .filter(folder => ignoredFolderNames.includes(folder.title))
+            .map(folder => folder.id);
+
+        let result = (await joplin.data.get(["notes"], {
+            fields: ["id", "is_todo", "todo_due", "todo_completed", "title", "created_time", "parent_id"], 
+            query: `is_todo = 1 AND parent_id NOT IN ("${Array.from(ignoredFolderIds).join('","')}")`,
+            page: page_idx}))
+
+        notes = notes.concat(result.items)
+        while (result.has_more) {
+            page_idx++
+            result = (await joplin.data.get(["notes"], {fields: [
+                    "id", "is_todo", "todo_due", "todo_completed", "title", "created_time","parent_id"
+                ],
+                query: `is_todo = 1 AND parent_id NOT IN ("${Array.from(ignoredFolderIds).join('","')}")`,
+                page: page_idx}))
+            notes = notes.concat(result.items)
+        }
+
+    console.log(ignoredFolderIds);
+    console.log(notes);
+
+    return notes;
+}
 
 function escapeHtml(unsafe:string) {
 	return unsafe
